@@ -14,11 +14,10 @@
 #include "common/harness.h"
 #include "common/logger.h"
 #include "gtest/gtest.h"
-#include "network/network_manager.h"
+#include "network/peloton_server.h"
 #include "network/postgres_protocol_handler.h"
 #include "util/string_util.h"
-
-#define NUM_THREADS 1
+#include "network/connection_handle_factory.h"
 
 namespace peloton {
 namespace test {
@@ -28,17 +27,6 @@ namespace test {
 //===--------------------------------------------------------------------===//
 
 class PrepareStmtTests : public PelotonTest {};
-
-static void *LaunchServer(peloton::network::NetworkManager *network_manager,
-                          int port) {
-  try {
-    network_manager->SetPort(port);
-    network_manager->StartServer();
-  } catch (peloton::ConnectionException exception) {
-    LOG_INFO("[LaunchServer] exception in thread");
-  }
-  return NULL;
-}
 
 /**
  * named prepare statement without parameters
@@ -53,9 +41,9 @@ void *PrepareStatementTest(int port) {
     LOG_INFO("[PrepareStatementTest] Connected to %s", C.dbname());
     pqxx::work txn1(C);
 
-    peloton::network::NetworkConnection *conn =
-        peloton::network::NetworkManager::GetConnection(
-            peloton::network::NetworkManager::recent_connfd);
+    peloton::network::ConnectionHandle *conn =
+        peloton::network::ConnectionHandleFactory::GetInstance().ConnectionHandleAt(
+            peloton::network::PelotonServer::recent_connfd).get();
 
     //Check type of protocol handler
     network::PostgresProtocolHandler* handler =
@@ -94,18 +82,23 @@ void *PrepareStatementTest(int port) {
 }
 
 TEST_F(PrepareStmtTests, PrepareStatementTest) {
+
   peloton::PelotonInit::Initialize();
   LOG_INFO("Server initialized");
-  peloton::network::NetworkManager network_manager;
+  peloton::network::PelotonServer server;
+
   int port = 15721;
-  std::thread serverThread(LaunchServer, &network_manager, port);
-  while (!network_manager.GetIsStarted()) {
-    sleep(1);
+  try {
+    server.SetPort(port);
+    server.SetupServer();
+  } catch (peloton::ConnectionException &exception) {
+    LOG_INFO("[LaunchServer] exception when launching server");
   }
+  std::thread serverThread([&]() { server.ServerLoop(); });
 
-  PrepareStatementTest(port);
-
-  network_manager.CloseServer();
+  for (int i = 0; i < 100; i++)
+    PrepareStatementTest(port);
+  server.Close();
   serverThread.join();
   peloton::PelotonInit::Shutdown();
   LOG_INFO("Peloton has shut down");

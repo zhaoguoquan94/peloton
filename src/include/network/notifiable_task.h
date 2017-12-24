@@ -37,6 +37,18 @@ namespace peloton {
 namespace network {
 
 /**
+ * Convenient MACRO to use a method as a libevent callback function. Example usage:
+ *
+ * (..., METHOD_AS_CALLBACK(ConnectionDispatcherTask, DispatchConnection), obj)
+ *
+ * Would call DispatchConnection method on ConnectionDispatcherTask. obj must be an instance
+ * of ConnectionDispatcherTask. The method being invoked must have signature void(int, short),
+ * where int is the fd and short is the flags supplied by libevent.
+ *
+ */
+#define METHOD_AS_CALLBACK(type, method) [](int fd, short flags, void *arg) {static_cast<type *>(arg)->method(fd, flags);}
+
+/**
  * @brief NotifiableTasks can be configured to handle events with callbacks, and executes within an event loop
  *
  * More specifically, NotifiableTasks are backed by libevent, and takes care of memory management with the library.
@@ -47,7 +59,7 @@ public:
    * Constructs a new NotifiableTask instance.
    * @param task_id a unique id assigned to this task
    */
-  explicit NotifiableTask(const int task_id)
+  explicit NotifiableTask(int task_id)
       : task_id_(task_id) {
     base_ = event_base_new();
     // TODO(tianyu) Error handling here can be better perhaps?
@@ -57,33 +69,28 @@ public:
     }
     // TODO(tianyu) Determine whether we actually need this line. Tianyi says we need it, libevent documentation says no
     // evthread_make_base_notifiable(base_);
+
+    // For exiting a loop
+    terminate_ = RegisterManualEvent([](int, short, void *arg) {
+      event_base_loopexit((struct event_base *) arg, nullptr);
+    }, base_);
   };
 
   /**
-   *
+ * Destructs this NotifiableTask. All events currently registered to its base are also deleted and freed.
+ */
+  virtual ~NotifiableTask() {
+    for (struct event *event : events_) {
+      event_del(event);
+      event_free(event);
+    }
+    event_base_free(base_);
+  }
+
+  /**
    * @return unique id assigned to this task
    */
   inline int Id() const { return task_id_; }
-
-  virtual ~NotifiableTask() {
-
-      for (struct event *event : events_) {
-        event_del(event);
-        event_free(event);
-      }
-
-      event_base_free(base_);
-  }
-
-  // TODO(tianyu) We can probably get rid of these flags eventually
-  // Getter and setter for flags
-  bool GetThreadIsStarted() { return is_started; }
-
-  void SetThreadIsStarted(bool is_started) { this->is_started = is_started; }
-
-  bool GetThreadIsClosed() { return is_closed; }
-
-  void SetThreadIsClosed(bool is_closed) { this->is_closed = is_closed; }
 
   /**
    * @brief Register an event with the event base associated with this notifiable task.
@@ -219,18 +226,23 @@ public:
   /**
    * Exits the event loop
    */
-  void Break() {
-    event_base_loopexit(base_, nullptr);
+  virtual void ExitLoop() {
+    event_active(terminate_, 0, 0);
   }
 
+  /**
+   * Wrapper around ExitLoop() to conform to libevent callback signature
+   */
+  void ExitLoop(int, short) {
+    ExitLoop();
+  }
 
 private:
   const int task_id_;
   struct event_base *base_;
-  bool is_started = false;
-  bool is_closed = false;
 
-  // struct event management
+  // struct event and lifecycle management
+  struct event *terminate_;
   std::unordered_set<struct event *> events_;
 };
 
