@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include <unistd.h>
+#include <cstring>
 
 #include "network/connection_handle.h"
 #include <include/network/postgres_protocol_handler.h>
@@ -67,25 +68,23 @@ DEF_TRANSITION_GRAPH
     ON (WAKEUP) SET_STATE_TO (READ) AND_INVOKE (FillReadBuffer)
     ON (PROCEED) SET_STATE_TO (PROCESS) AND_INVOKE (Process)
     ON (NEED_DATA) SET_STATE_TO (WAIT) AND_INVOKE (Wait)
-    ON (ERROR) SET_STATE_TO (CLOSING) AND_INVOKE (CloseSocket)
+    ON (FINISH) SET_STATE_TO (CLOSING) AND_INVOKE (CloseSocket)
   END_DEF
 
   DEFINE_STATE (WAIT)
     ON (PROCEED) SET_STATE_TO (READ) AND_WAIT
-    ON (ERROR) SET_STATE_TO (CLOSING) AND_INVOKE (CloseSocket)
   END_DEF
 
   DEFINE_STATE (PROCESS)
     ON (PROCEED) SET_STATE_TO (WRITE) AND_INVOKE (ProcessWrite)
     ON (NEED_DATA) SET_STATE_TO (WAIT) AND_INVOKE (Wait)
     ON (GET_RESULT) SET_STATE_TO (GET_RESULT) AND_WAIT
-    ON (ERROR) SET_STATE_TO (CLOSING) AND_INVOKE (CloseSocket)
+    ON (FINISH) SET_STATE_TO (CLOSING) AND_INVOKE (CloseSocket)
   END_DEF
 
   DEFINE_STATE (WRITE)
     ON (WAKEUP) SET_STATE_TO (WRITE) AND_INVOKE (ProcessWrite)
     ON (PROCEED) SET_STATE_TO (PROCESS) AND_INVOKE (Process)
-    ON (ERROR) SET_STATE_TO (CLOSING) AND_INVOKE(CloseSocket)
   END_DEF
 
   DEFINE_STATE (GET_RESULT)
@@ -99,7 +98,13 @@ void ConnectionHandle::StateMachine::Accept(Transition action, ConnectionHandle 
   while (next != Transition::NONE) {
     transition_result result = Delta_(current_state_, next);
     current_state_ = result.first;
-    next = result.second(connection);
+    try {
+      next = result.second(connection);
+    } catch (NetworkProcessException &e) {
+      LOG_ERROR("%s\n", e.what());
+      connection.CloseSocket();
+      return;
+    }
   }
 }
 
@@ -108,8 +113,8 @@ ConnectionHandle::ConnectionHandle(int sock_fd, ConnectionHandlerTask *handler,
     : sock_fd_(sock_fd),
       handler_(handler),
       protocol_handler_(nullptr),
-      rbuf_(rbuf),
-      wbuf_(wbuf){
+      rbuf_(std::move(rbuf)),
+      wbuf_(std::move(wbuf)){
   SetNonBlocking(sock_fd_);
   SetTCPNoDelay(sock_fd_);
 
@@ -130,7 +135,7 @@ ConnectionHandle::ConnectionHandle(int sock_fd, ConnectionHandlerTask *handler,
                                          METHOD_AS_CALLBACK(ConnectionHandle, HandleEvent), this);
   workpool_event = handler->RegisterManualEvent(METHOD_AS_CALLBACK(ConnectionHandle, HandleEvent), this);
 
-  //TODO:: should put the initialization else where.. check correctness first.
+  //TODO: should put the initialization else where.. check correctness first.
   traffic_cop_.SetTaskCallback([](void *arg) {
     struct event* event = static_cast<struct event*>(arg);
     event_active(event, EV_WRITE, 0);
@@ -138,13 +143,11 @@ ConnectionHandle::ConnectionHandle(int sock_fd, ConnectionHandlerTask *handler,
 
 }
 
-bool ConnectionHandle::UpdateEventFlags(short flags) {
+void ConnectionHandle::UpdateEventFlags(short flags) {
   // TODO(tianyu): The original network code seems to do this as an optimization. I am leaving this out until we get numbers
   // handler->UpdateEvent(network_event, sock_fd_, flags, METHOD_AS_CALLBACK(ConnectionHandle, HandleEvent), this);
   handler_->UnregisterEvent(network_event);
   network_event = handler_->RegisterEvent(sock_fd_, flags, METHOD_AS_CALLBACK(ConnectionHandle, HandleEvent), this);
-  // TODO(tianyu) Not propagate error since we will change to exceptions anyway.
-  return true;
 }
 
 WriteState ConnectionHandle::WritePackets() {
@@ -154,9 +157,9 @@ WriteState ConnectionHandle::WritePackets() {
     LOG_TRACE("To send packet with type: %c", static_cast<char>(pkt->msg_type));
     // write is not ready during write. transit to WRITE
     auto result = BufferWriteBytesHeader(pkt);
-    if (result == WriteState::WRITE_NOT_READY || result == WriteState::WRITE_ERROR) return result;
+    if (result == WriteState::WRITE_NOT_READY) return result;
     result = BufferWriteBytesContent(pkt);
-    if (result == WriteState::WRITE_NOT_READY || result == WriteState::WRITE_ERROR) return result;
+    if (result == WriteState::WRITE_NOT_READY) return result;
   }
 
   // Done writing all packets. clear packets
@@ -222,53 +225,19 @@ Transition ConnectionHandle::FillReadBuffer() {
         rbuf_->buf_size += bytes_read;
         result = Transition::PROCEED;
       } else if (bytes_read == 0) {
-        // Read failed
-        return Transition::ERROR;
+        return Transition::FINISH;
       } else if (bytes_read < 0) {
+        LOG_ERROR("Error writing: %s", strerror(errno));
         // related to non-blocking?
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
           // return whatever results we have
-          LOG_TRACE("Received: EAGAIN or EWOULDBLOCK");
           done = true;
         } else if (errno == EINTR) {
           // interrupts are ok, try again
-          LOG_TRACE("Error Reading: EINTR");
           continue;
         } else {
-          // otherwise, we have some other error
-          switch (errno) {
-            case EBADF:
-              LOG_TRACE("Error Reading: EBADF");
-              break;
-            case EDESTADDRREQ:
-              LOG_TRACE("Error Reading: EDESTADDRREQ");
-              break;
-            case EDQUOT:
-              LOG_TRACE("Error Reading: EDQUOT");
-              break;
-            case EFAULT:
-              LOG_TRACE("Error Reading: EFAULT");
-              break;
-            case EFBIG:
-              LOG_TRACE("Error Reading: EFBIG");
-              break;
-            case EINVAL:
-              LOG_TRACE("Error Reading: EINVAL");
-              break;
-            case EIO:
-              LOG_TRACE("Error Reading: EIO");
-              break;
-            case ENOSPC:
-              LOG_TRACE("Error Reading: ENOSPC");
-              break;
-            case EPIPE:
-              LOG_TRACE("Error Reading: EPIPE");
-              break;
-            default:
-              LOG_TRACE("Error Reading: UNKNOWN");
-          }
           // some other error occured
-          return Transition::ERROR;
+          throw NetworkProcessException("Error when filling read buffer " + std::to_string(errno));
         }
       }
     }
@@ -292,43 +261,7 @@ WriteState ConnectionHandle::FlushWriteBuffer() {
       }
       // Write failed
       if (written_bytes < 0) {
-        switch (errno) {
-          case EINTR:
-            LOG_TRACE("Error Writing: EINTR");
-            break;
-          case EAGAIN:
-            LOG_TRACE("Error Writing: EAGAIN");
-            break;
-          case EBADF:
-            LOG_TRACE("Error Writing: EBADF");
-            break;
-          case EDESTADDRREQ:
-            LOG_TRACE("Error Writing: EDESTADDRREQ");
-            break;
-          case EDQUOT:
-            LOG_TRACE("Error Writing: EDQUOT");
-            break;
-          case EFAULT:
-            LOG_TRACE("Error Writing: EFAULT");
-            break;
-          case EFBIG:
-            LOG_TRACE("Error Writing: EFBIG");
-            break;
-          case EINVAL:
-            LOG_TRACE("Error Writing: EINVAL");
-            break;
-          case EIO:
-            LOG_TRACE("Error Writing: EIO");
-            break;
-          case ENOSPC:
-            LOG_TRACE("Error Writing: ENOSPC");
-            break;
-          case EPIPE:
-            LOG_TRACE("Error Writing: EPIPE");
-            break;
-          default:
-            LOG_TRACE("Error Writing: UNKNOWN");
-        }
+        LOG_ERROR("Error writing: %s", strerror(errno));
         if (errno == EINTR) {
           // interrupts are ok, try again
           written_bytes = 0;
@@ -337,16 +270,13 @@ WriteState ConnectionHandle::FlushWriteBuffer() {
           // in blocking mode. Wait till it's readable
         } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
           // Listen for socket being enabled for write
-          if (!UpdateEventFlags(EV_WRITE | EV_PERSIST)) {
-            return WriteState::WRITE_ERROR;
-          }
+          UpdateEventFlags(EV_WRITE | EV_PERSIST);
           // We should go to WRITE state
           LOG_DEBUG("WRITE NOT READY");
           return WriteState::WRITE_NOT_READY;
         } else {
           // fatal errors
-          LOG_ERROR("Fatal error during write, errno %d", errno);
-          return WriteState::WRITE_ERROR;
+          throw NetworkProcessException("Fatal error during write, errno " + std::to_string(errno));
         }
       }
 
@@ -404,10 +334,7 @@ ProcessResult ConnectionHandle::ProcessInitial() {
   }
 
   // We need to handle startup packet first
-
-  if (!ProcessInitialPacket(&rpkt)) {
-    return ProcessResult::TERMINATE;
-  }
+  ProcessInitialPacket(&rpkt);
   return ProcessResult::COMPLETE;
 }
 
@@ -438,7 +365,7 @@ bool ConnectionHandle::ReadStartupPacketHeader(Buffer &rbuf, InputPacket &rpkt) 
   return true;
 }
 
-bool ConnectionHandle::ProcessInitialPacket(InputPacket *pkt) {
+void ConnectionHandle::ProcessInitialPacket(InputPacket *pkt) {
   std::string token, value;
   std::unique_ptr<OutputPacket> response(new OutputPacket());
 
@@ -448,36 +375,33 @@ bool ConnectionHandle::ProcessInitialPacket(InputPacket *pkt) {
   // TODO: consider more about return value
   if (proto_version == SSL_MESSAGE_VERNO) {
     LOG_TRACE("process SSL MESSAGE");
-    return ProcessSSLRequestPacket(pkt);
+    ProcessSSLRequestPacket(pkt);
   }
   else {
     LOG_TRACE("process startup packet");
-    return ProcessStartupPacket(pkt, proto_version);
+    ProcessStartupPacket(pkt, proto_version);
   }
 }
 
-bool ConnectionHandle::ProcessSSLRequestPacket(InputPacket *) {
+void ConnectionHandle::ProcessSSLRequestPacket(InputPacket *) {
   std::unique_ptr<OutputPacket> response(new OutputPacket());
   // TODO: consider more about a proper response
   response->msg_type = NetworkMessageType::SSL_YES;
   protocol_handler_->responses.push_back(std::move(response));
   protocol_handler_->SetFlushFlag(true);
   ssl_sent_ = true;
-  return true;
 }
 
-bool ConnectionHandle::ProcessStartupPacket(InputPacket* pkt, int32_t proto_version) {
+void ConnectionHandle::ProcessStartupPacket(InputPacket *pkt, int32_t proto_version) {
   std::string token, value;
 
-
   // Only protocol version 3 is supported
-  if (PROTO_MAJOR_VERSION(proto_version) != 3) {
-    LOG_ERROR("Protocol error: Only protocol version 3 is supported.");
-    exit(EXIT_FAILURE);
-  }
+  if (PROTO_MAJOR_VERSION(proto_version) != 3)
+    throw NetworkProcessException("Protocol error: Only protocol version 3 is supported.");
 
   // TODO: check for more malformed cases
   // iterate till the end
+  // TODO(tianyu): WTF is this?
   for (;;) {
     // loop end case?
     if (pkt->ptr >= pkt->len) break;
@@ -497,7 +421,6 @@ bool ConnectionHandle::ProcessStartupPacket(InputPacket* pkt, int32_t proto_vers
       GetStringToken(pkt, value);
       client_.cmdline_options[token] = value;
     }
-
   }
 
   protocol_handler_ =
@@ -505,8 +428,6 @@ bool ConnectionHandle::ProcessStartupPacket(InputPacket* pkt, int32_t proto_vers
           ProtocolHandlerType::Postgres, &traffic_cop_);
 
   protocol_handler_->SendInitialResponse();
-
-  return true;
 }
 
 // Writes a packet's header (type, size) into the write buffer.
@@ -525,7 +446,7 @@ WriteState ConnectionHandle::BufferWriteBytesHeader(OutputPacket *pkt) {
   if (wbuf_->GetMaxSize() - wbuf_->buf_ptr < 1 + sizeof(int32_t)) {
     // buffer needs to be flushed before adding header
     auto result = FlushWriteBuffer();
-    if (result == WriteState::WRITE_NOT_READY || result == WriteState::WRITE_ERROR) {
+    if (result == WriteState::WRITE_NOT_READY) {
       // Socket is not ready for write
       return result;
     }
@@ -596,7 +517,7 @@ WriteState ConnectionHandle::BufferWriteBytesContent(OutputPacket *pkt) {
       LOG_TRACE("Content doesn't fit in window. Try flushing");
       auto result = FlushWriteBuffer();
       // flush before write the remaining content
-      if (result == WriteState::WRITE_NOT_READY || result == WriteState::WRITE_ERROR) {
+      if (result == WriteState::WRITE_NOT_READY) {
         // need to retry or close connection
         return result;
       }
@@ -626,10 +547,7 @@ Transition ConnectionHandle::CloseSocket() {
 
 Transition ConnectionHandle::Wait() {
   // TODO(tianyu): Maybe we don't need this state? Also, this name is terrible
-  if (!UpdateEventFlags(EV_READ | EV_PERSIST)) {
-    LOG_ERROR("Failed to update event, closing");
-    return Transition::ERROR;
-  }
+  UpdateEventFlags(EV_READ | EV_PERSIST);
   return Transition::PROCEED;
 }
 
@@ -648,10 +566,7 @@ Transition ConnectionHandle::Process() {
       int ssl_accept_ret;
       if ((ssl_accept_ret = SSL_accept(conn_SSL_context)) <= 0) {
         LOG_ERROR("Failed to accept (handshake) client SSL context.");
-        LOG_ERROR("ssl error: %d", SSL_get_error(conn_SSL_context, ssl_accept_ret));
-        // TODO: consider more about proper action
-        PL_ASSERT(false);
-        return Transition::ERROR;
+        throw NetworkProcessException("ssl error: " + std::to_string(SSL_get_error(conn_SSL_context, ssl_accept_ret)));
       }
       LOG_ERROR("SSL handshake completed");
       ssl_sent_ = false;
@@ -663,11 +578,8 @@ Transition ConnectionHandle::Process() {
         return Transition::PROCEED;
       case ProcessResult::MORE_DATA_REQUIRED:
         return Transition::NEED_DATA;
-      case ProcessResult::TERMINATE:
-        return Transition::ERROR;
-      default: // PROCESSING is impossible to happens in initial packets
-      LOG_ERROR("Unexpected ProcessResult");
-        return Transition::ERROR;
+      default:
+        throw NetworkProcessException("Unexpected Process Initial result");
     }
   } else {
     ProcessResult status = protocol_handler_->Process(*rbuf_, (size_t) handler_->Id());
@@ -677,45 +589,27 @@ Transition ConnectionHandle::Process() {
         return Transition::NEED_DATA;
       case ProcessResult::COMPLETE:
         return Transition::PROCEED;
-      case ProcessResult::PROCESSING: {
-        if (event_del(network_event) == -1) {
-          //TODO: There may be better way to handle this error
-          LOG_ERROR("Failed to delete event");
-          PL_ASSERT(false);
-        }
+      case ProcessResult::PROCESSING:
+        EventUtil::EventDel(network_event);
         LOG_TRACE("ProcessResult: queueing");
         return Transition::GET_RESULT;
-      }
       case ProcessResult::TERMINATE:
-        return Transition::ERROR;
+        return Transition::FINISH;
     }
   }
-
-  // Should not be here
-  return Transition::ERROR;
+  throw NetworkProcessException("Unexpected process result");
 }
 
 Transition ConnectionHandle::ProcessWrite() {
   // TODO(tianyu): Should convert to use Transition in the top level method
   switch (WritePackets()) {
-    case WriteState::WRITE_COMPLETE: {
-      if (!UpdateEventFlags(EV_READ | EV_PERSIST)) {
-        LOG_ERROR("Failed to update event, closing");
-        return Transition::ERROR;
-      }
+    case WriteState::WRITE_COMPLETE:
+      UpdateEventFlags(EV_READ | EV_PERSIST);
       return Transition::PROCEED;
-    }
-
     case WriteState::WRITE_NOT_READY:
       return Transition::NONE;
-
-    case WriteState::WRITE_ERROR:
-    LOG_ERROR("Error during write, closing connection");
-      return Transition::ERROR;
   }
-
-  // Should not be here
-  return Transition::ERROR;
+  throw NetworkProcessException("Unexpected write state");
 }
 
 Transition ConnectionHandle::GetResult() {
