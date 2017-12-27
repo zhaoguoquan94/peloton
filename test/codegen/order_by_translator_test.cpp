@@ -51,8 +51,7 @@ TEST_F(OrderByTranslatorTest, SingleIntColAscTest) {
   codegen::BufferingConsumer buffer{{0, 1}, context};
 
   // COMPILE and execute
-  CompileAndExecute(*order_by_plan, buffer,
-                    reinterpret_cast<char *>(buffer.GetState()));
+  CompileAndExecute(*order_by_plan, buffer);
 
   // The results should be sorted in ascending order
   auto &results = buffer.GetOutputTuples();
@@ -89,8 +88,7 @@ TEST_F(OrderByTranslatorTest, SingleIntColDescTest) {
   codegen::BufferingConsumer buffer{{0, 1}, context};
 
   // COMPILE and execute
-  CompileAndExecute(*order_by_plan, buffer,
-                    reinterpret_cast<char *>(buffer.GetState()));
+  CompileAndExecute(*order_by_plan, buffer);
 
   // The results should be sorted in descending order
   auto &results = buffer.GetOutputTuples();
@@ -127,8 +125,7 @@ TEST_F(OrderByTranslatorTest, MultiIntColAscTest) {
   codegen::BufferingConsumer buffer{{0, 1}, context};
 
   // COMPILE and execute
-  CompileAndExecute(*order_by_plan, buffer,
-                    reinterpret_cast<char *>(buffer.GetState()));
+  CompileAndExecute(*order_by_plan, buffer);
 
   // The results should be sorted in ascending order
   auto &results = buffer.GetOutputTuples();
@@ -137,7 +134,8 @@ TEST_F(OrderByTranslatorTest, MultiIntColAscTest) {
   EXPECT_TRUE(std::is_sorted(
       results.begin(), results.end(),
       [](const codegen::WrappedTuple &t1, const codegen::WrappedTuple &t2) {
-        if (t1.GetValue(1).CompareEquals(t2.GetValue(0)) == type::CmpBool::TRUE) {
+        if (t1.GetValue(1).CompareEquals(t2.GetValue(0)) ==
+            type::CmpBool::TRUE) {
           // t1.b == t2.b => t1.a <= t2.a
           return t1.GetValue(0).CompareLessThanEquals(t2.GetValue(0)) ==
                  type::CmpBool::TRUE;
@@ -173,8 +171,7 @@ TEST_F(OrderByTranslatorTest, MultiIntColMixedTest) {
   codegen::BufferingConsumer buffer{{0, 1}, context};
 
   // COMPILE and execute
-  CompileAndExecute(*order_by_plan, buffer,
-                    reinterpret_cast<char *>(buffer.GetState()));
+  CompileAndExecute(*order_by_plan, buffer);
 
   // The results should be sorted in ascending order
   auto &results = buffer.GetOutputTuples();
@@ -183,7 +180,8 @@ TEST_F(OrderByTranslatorTest, MultiIntColMixedTest) {
   EXPECT_TRUE(std::is_sorted(
       results.begin(), results.end(),
       [](const codegen::WrappedTuple &t1, const codegen::WrappedTuple &t2) {
-        if (t1.GetValue(1).CompareEquals(t2.GetValue(1)) == type::CmpBool::TRUE) {
+        if (t1.GetValue(1).CompareEquals(t2.GetValue(1)) ==
+            type::CmpBool::TRUE) {
           // t1.b == t2.b => t1.a <= t2.a
           return t1.GetValue(0).CompareLessThanEquals(t2.GetValue(0)) ==
                  type::CmpBool::TRUE;
