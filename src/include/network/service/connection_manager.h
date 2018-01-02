@@ -4,11 +4,12 @@
 //
 // connection_manager.h
 //
-// Identification: src/include/network/connection_manager.h
+// Identification: src/include/network/service/connection_manager.h
 //
-// Copyright (c) 2015-16, Carnegie Mellon University Database Group
+// Copyright (c) 2015-2018, Carnegie Mellon University Database Group
 //
 //===----------------------------------------------------------------------===//
+
 
 #pragma once
 
