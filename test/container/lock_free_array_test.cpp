@@ -30,16 +30,44 @@ class LockFreeArrayTests : public PelotonTest {};
 TEST_F(LockFreeArrayTests, BasicLibCdsTest) {
   cds::Initialize();
   {
-    // Initialize Hazard Pointer singleton
-    cds::gc::HP hpGC;
+    typedef cds::container::IterableList<cds::gc::HP, int> list_type;
+    cds::gc::hp::GarbageCollector::Construct(list_type::c_nHazardPtrCount + 3, 1, 16 );
     cds::threading::Manager::attachThread();
 
-    // Insert code here.
-    cds::container::IterableList
-      <cds::gc::HP, int, cds::container::iterable_list::traits> list;
-    list.insert(1);
-    list.insert(2);
-    LOG_ERROR("Size: %zu", list.size());
+    cds::container::IterableList< cds::gc::HP, int,
+      typename cds::container::iterable_list::make_traits<
+        cds::opt::item_counter< cds::atomicity::item_counter >
+      >::type
+    > list;
+
+    EXPECT_TRUE(list.insert(1));
+    EXPECT_TRUE(list.insert(2));
+
+    EXPECT_EQ(list.size(), 2);
+  }
+  cds::Terminate();
+}
+
+TEST_F(LockFreeArrayTests, BasicSharedPointerLibCdsTest) {
+  cds::Initialize();
+  {
+    typedef cds::container::IterableList<cds::gc::HP, std::shared_ptr<oid_t>> list_type;
+    cds::gc::hp::GarbageCollector::Construct(list_type::c_nHazardPtrCount + 3, 1, 16 );
+    cds::threading::Manager::attachThread();
+
+    cds::container::IterableList< cds::gc::HP, std::shared_ptr<oid_t>,
+      typename cds::container::iterable_list::make_traits<
+        cds::opt::item_counter< cds::atomicity::item_counter >
+      >::type
+    > list;
+
+    size_t const element_count = 3;
+    for (size_t element = 0; element < element_count; ++element ) {
+      std::shared_ptr<oid_t> entry(new oid_t);
+      auto status = list.insert(entry);
+      EXPECT_TRUE(status);
+    }
+    EXPECT_EQ(list.size(), element_count);
   }
   cds::Terminate();
 }
