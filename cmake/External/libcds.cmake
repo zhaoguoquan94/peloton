@@ -44,7 +44,7 @@ if (NOT __LIBCDS_INCLUDED) # guard against multiple includes
 
     set(LIBCDS_LIBRARY_DIRS ${capnp_INSTALL}/lib)
     set(LIBCDS_LIBRARIES
-            ${libcds_INSTALL}/lib64/libcds_d.dylib
+            ${libcds_INSTALL}/lib64/libcds_d.2.3.2.dylib
             )
     list(APPEND external_project_dependencies libcds)
 
