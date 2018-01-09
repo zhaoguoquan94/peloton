@@ -35,7 +35,11 @@ TEST_F(LockFreeArrayTests, BasicLibCdsTest) {
     cds::threading::Manager::attachThread();
 
     // Insert code here.
-
+    cds::container::IterableList
+      <cds::gc::HP, int, cds::container::iterable_list::traits> list;
+    list.insert(1);
+    list.insert(2);
+    LOG_ERROR("Size: %zu", list.size());
   }
   cds::Terminate();
 }
