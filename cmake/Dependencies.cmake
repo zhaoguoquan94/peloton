@@ -28,6 +28,11 @@ list(APPEND Peloton_LINKER_LIBS ${CAPNP_LIBRARIES})
 # To include the CAPNP_GENERATE_CPP function from the capnproto installation
 include(cmake/CapnProtoMacros.cmake)
 
+# ---[ libcds
+include("cmake/External/libcds.cmake")
+include_directories(SYSTEM ${LIBCDS_INCLUDE_DIRS})
+list(APPEND Peloton_LINKER_LIBS ${LIBCDS_LIBRARIES})
+
 # ---[ Google-protobuf
 include(cmake/ProtoBuf.cmake)
 
