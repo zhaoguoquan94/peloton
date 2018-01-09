@@ -14,6 +14,9 @@
 #include "container/lock_free_array.h"
 
 #include "common/harness.h"
+#include "libcds/cds/init.h"
+#include "libcds/cds/gc/hp.h"
+#include "libcds/cds/container/iterable_list_hp.h"
 
 namespace peloton {
 namespace test {
@@ -23,6 +26,19 @@ namespace test {
 //===--------------------------------------------------------------------===//
 
 class LockFreeArrayTests : public PelotonTest {};
+
+TEST_F(LockFreeArrayTests, BasicLibCdsTest) {
+  cds::Initialize();
+  {
+    // Initialize Hazard Pointer singleton
+    cds::gc::HP hpGC;
+    cds::threading::Manager::attachThread();
+
+    // Insert code here.
+
+  }
+  cds::Terminate();
+}
 
 // Test basic functionality
 TEST_F(LockFreeArrayTests, BasicTest) {
