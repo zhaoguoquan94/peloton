@@ -22,7 +22,7 @@ if (NOT __LIBCDS_INCLUDED) # guard against multiple includes
             SOURCE_DIR ${PROJECT_SOURCE_DIR}/third_party/libcds
             UPDATE_COMMAND ""
             INSTALL_DIR ${libcds_INSTALL}
-            CMAKE_ARGS -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+            CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
             -DCMAKE_INSTALL_PREFIX=${libcds_INSTALL}
             -DBUILD_SHARED_LIBS=ON
             -DBUILD_PACKAGING=OFF
@@ -44,7 +44,7 @@ if (NOT __LIBCDS_INCLUDED) # guard against multiple includes
 
     set(LIBCDS_LIBRARY_DIRS ${capnp_INSTALL}/lib)
     set(LIBCDS_LIBRARIES
-            ${libcds_INSTALL}/lib64/libcds_d.2.3.2.dylib
+        ${libcds_INSTALL}/lib64/libcds.2.3.2.dylib
             )
     list(APPEND external_project_dependencies libcds)
 
