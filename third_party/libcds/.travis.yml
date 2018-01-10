@@ -1,12 +1,12 @@
 language: cpp
 
 install: 
-  - chmod +x ./build/CI/travis-ci/install.sh
-  - ./build/CI/travis-ci/install.sh
+  - chmod +x ./build-scripts/CI/travis-ci/install.sh
+  - ./build-scripts/CI/travis-ci/install.sh
 
 script:
-  - chmod +x ./build/CI/travis-ci/run.sh
-  - ./build/CI/travis-ci/run.sh
+  - chmod +x ./build-scripts/CI/travis-ci/run.sh
+  - ./build-scripts/CI/travis-ci/run.sh
 
 linux: &linux_gcc
   os: linux

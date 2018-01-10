@@ -13,8 +13,8 @@ if (NOT __LIBCDS_INCLUDED) # guard against multiple includes
     set(libcds_INSTALL ${CMAKE_BINARY_DIR}/external/libcds-install)
 
     # compilation flags
-    set(LIBCDS_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-    set(LIBCDS_C_FLAGS ${CMAKE_C_FLAGS})
+    set(LIBCDS_CXX_FLAGS ${CMAKE_CXX_FLAGS} -DCDS_DISABLE_128BIT_ATOMIC)
+    set(LIBCDS_C_FLAGS ${CMAKE_C_FLAGS} -DCDS_DISABLE_128BIT_ATOMIC)
 
     ExternalProject_Add(libcds
             PREFIX ${libcds_PREFIX}
