@@ -25,6 +25,8 @@
 #include "storage/abstract_table.h"
 #include "storage/indirection_array.h"
 #include "trigger/trigger.h"
+#include "libcds/cds/gc/hp.h"
+#include "libcds/cds/container/iterable_list_hp.h"
 
 //===--------------------------------------------------------------------===//
 // Configuration Variables
@@ -359,6 +361,13 @@ class DataTable : public AbstractTable {
   // TILE GROUPS
   LockFreeArray<oid_t> tile_groups_;
 
+  // LockFree TILE_GROUPS
+  cds::container::IterableList< cds::gc::HP, oid_t,
+    typename cds::container::iterable_list::make_traits<
+      cds::opt::item_counter< cds::atomicity::item_counter >
+  >::type
+  > tile_groups_lockfree_;
+
   std::vector<std::shared_ptr<storage::TileGroup>> active_tile_groups_;
 
   std::atomic<size_t> tile_group_count_ = ATOMIC_VAR_INIT(0);
@@ -372,6 +381,13 @@ class DataTable : public AbstractTable {
 
   // INDEXES
   LockFreeArray<std::shared_ptr<index::Index>> indexes_;
+
+  // LockFree INDEXES
+  cds::container::IterableList< cds::gc::HP, std::shared_ptr<index::Index>,
+    typename cds::container::iterable_list::make_traits<
+      cds::opt::item_counter< cds::atomicity::item_counter >
+  >::type
+  > indexes_lockfree_;
 
   // columns present in the indexes
   std::vector<std::set<oid_t>> indexes_columns_;

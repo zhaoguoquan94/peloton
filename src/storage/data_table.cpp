@@ -92,6 +92,23 @@ DataTable::DataTable(catalog::Schema *schema, const std::string &table_name,
   for (size_t i = 0; i < active_indirection_array_count_; ++i) {
     AddDefaultIndirectionArray(i);
   }
+
+
+  // Initialize hazard pointers.
+  typedef cds::container::IterableList<cds::gc::HP, std::shared_ptr<oid_t>> indexes_list_type;
+  typedef cds::container::IterableList<cds::gc::HP, oid_t> tile_groups_list_type;
+
+  cds::gc::hp::GarbageCollector::Construct(indexes_list_type::c_nHazardPtrCount + 3, 1, 16 );
+  cds::gc::hp::GarbageCollector::Construct(tile_groups_list_type::c_nHazardPtrCount + 3, 1, 16 );
+
+  cds::threading::Manager::attachThread();
+
+  // Sample code to insert some elements.
+  for (int i=0; i<100; i++) {
+    tile_groups_lockfree_.insert(i);
+  }
+
+  LOG_INFO("Size is %zu", tile_groups_lockfree_.size());
 }
 
 DataTable::~DataTable() {
@@ -122,6 +139,7 @@ DataTable::~DataTable() {
     catalog_manager.DropIndirectionArray(oid);
   }
   // AbstractTable cleans up the schema
+  cds::threading::Manager::detachThread();
 }
 
 //===--------------------------------------------------------------------===//

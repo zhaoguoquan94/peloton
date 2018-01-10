@@ -23,6 +23,7 @@
 #include "gc/gc_manager_factory.h"
 #include "settings/settings_manager.h"
 #include "threadpool/mono_queue_pool.h"
+#include "libcds/cds/init.h"
 
 namespace peloton {
 
@@ -79,6 +80,10 @@ void PelotonInit::Initialize() {
   pg_catalog->CreateDatabase(DEFAULT_DB_NAME, txn);
 
   txn_manager.CommitTransaction(txn);
+
+
+  // Initialize libcds.
+  cds::Initialize();
 }
 
 void PelotonInit::Shutdown() {
@@ -110,6 +115,9 @@ void PelotonInit::Shutdown() {
 
   // clear parameters
   google::ShutDownCommandLineFlags();
+
+  // Terminate libcds
+  cds::Terminate();
 }
 
 void PelotonInit::SetUpThread() {}
