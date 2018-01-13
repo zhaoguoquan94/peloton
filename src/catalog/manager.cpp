@@ -44,13 +44,13 @@ void Manager::AddTileGroup(const oid_t oid,
 void Manager::DropTileGroup(const oid_t oid) {
   
   // drop the catalog reference to the tile group
-  tile_group_locator_.Erase(oid, empty_tile_group_);
+  tile_group_locator_.Erase(oid);
 }
 
 std::shared_ptr<storage::TileGroup> Manager::GetTileGroup(const oid_t oid) {
   std::shared_ptr<storage::TileGroup> location;
   
-  location = tile_group_locator_.Find(oid);
+  location = tile_group_locator_.Find(oid, empty_tile_group_);
 
   return location;
 }
@@ -58,7 +58,7 @@ std::shared_ptr<storage::TileGroup> Manager::GetTileGroup(const oid_t oid) {
 // used for logging test
 void Manager::ClearTileGroup() {
 
-  tile_group_locator_.Clear(empty_tile_group_);
+  tile_group_locator_.Clear();
 }
 
 
@@ -72,14 +72,14 @@ void Manager::AddIndirectionArray(const oid_t oid,
 void Manager::DropIndirectionArray(const oid_t oid) {
   
   // drop the catalog reference to the tile group
-  indirection_array_locator_.Erase(oid, empty_indirection_array_);
+  indirection_array_locator_.Erase(oid);
 }
 
 
 // used for logging test
 void Manager::ClearIndirectionArray() {
 
-  indirection_array_locator_.Clear(empty_indirection_array_);
+  indirection_array_locator_.Clear();
 }
 
 }  // namespace catalog

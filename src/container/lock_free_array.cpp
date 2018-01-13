@@ -31,112 +31,101 @@ class IndirectionArray;
 
 LOCK_FREE_ARRAY_TEMPLATE_ARGUMENTS
 LOCK_FREE_ARRAY_TYPE::LockFreeArray(){
-  lock_free_array.reset(new lock_free_array_t());
+
+  typedef cds::container::IterableKVList<cds::gc::HP,
+    int, ValueType, typename cds::container::iterable_list::make_traits<
+      cds::opt::item_counter< cds::atomicity::item_counter >
+    >::type
+  > list_type;
+
+  // Initialize hazard pointer GC.
+  cds::gc::hp::GarbageCollector::construct(list_type::c_nHazardPtrCount + 3,
+                                           MAX_THREADS_COUNT,
+                                           MAX_RETIRED_PTR_COUNT);
+  LOG_DEBUG("Initalized lock free array");
 }
 
 LOCK_FREE_ARRAY_TEMPLATE_ARGUMENTS
 LOCK_FREE_ARRAY_TYPE::~LockFreeArray(){
+  // Destruct hazard pointer GC
+  //cds::gc::hp::GarbageCollector::destruct(true);
+  LOG_DEBUG("Destructing lock free array");
 }
 
 LOCK_FREE_ARRAY_TEMPLATE_ARGUMENTS
 bool LOCK_FREE_ARRAY_TYPE::Update(const std::size_t &offset, ValueType value){
-  PL_ASSERT(offset <= LOCK_FREE_ARRAY_MAX_SIZE);
-  LOG_TRACE("Update at %lu", lock_free_array_offset.load());
-  lock_free_array->at(offset) =  value;
-  return true;
+  // Insert into offset (key) with value.
+  LOG_DEBUG("Update at %lu", offset);
+  return lock_free_list.upsert(offset, value, false).first;
 }
 
 LOCK_FREE_ARRAY_TEMPLATE_ARGUMENTS
 bool LOCK_FREE_ARRAY_TYPE::Append(ValueType value){
-  LOG_TRACE("Appended at %lu", lock_free_array_offset.load());
-  lock_free_array->at(lock_free_array_offset++) = value;
-  return true;
+  LOG_DEBUG("Appended at %lu", lock_free_array_offset.load());
+  return lock_free_list.insert(lock_free_array_offset++, value);
+}
+
+// invalid_value: not used.
+LOCK_FREE_ARRAY_TEMPLATE_ARGUMENTS
+bool LOCK_FREE_ARRAY_TYPE::Erase(const std::size_t &offset){
+  LOG_DEBUG("Erase at %lu", offset);
+  return lock_free_list.erase(offset);
 }
 
 LOCK_FREE_ARRAY_TEMPLATE_ARGUMENTS
-bool LOCK_FREE_ARRAY_TYPE::Erase(const std::size_t &offset, const ValueType& invalid_value){
-  PL_ASSERT(offset <= LOCK_FREE_ARRAY_MAX_SIZE);
-  LOG_TRACE("Erase at %lu", offset);
-  lock_free_array->at(offset) =  invalid_value;
-  return true;
-}
-
-LOCK_FREE_ARRAY_TEMPLATE_ARGUMENTS
-ValueType LOCK_FREE_ARRAY_TYPE::Find(const std::size_t &offset) const{
-  PL_ASSERT(offset <= LOCK_FREE_ARRAY_MAX_SIZE);
-  LOG_TRACE("Find at %lu", offset);
-  auto value = lock_free_array->at(offset);
-  return value;
+ValueType LOCK_FREE_ARRAY_TYPE::Find(const std::size_t &offset, const ValueType& invalid_value) const{
+  LOG_DEBUG("Find at %lu", offset);
+  auto it = lock_free_list.find(offset);
+  if (it == lock_free_list.end()) {
+    return invalid_value;
+  }
+  return it->second;
 }
 
 LOCK_FREE_ARRAY_TEMPLATE_ARGUMENTS
 ValueType LOCK_FREE_ARRAY_TYPE::FindValid(const std::size_t &offset,
                                           const ValueType& invalid_value) const {
-  PL_ASSERT(offset <= LOCK_FREE_ARRAY_MAX_SIZE);
-  LOG_TRACE("Find Valid at %lu", offset);
-
-  std::size_t valid_array_itr = 0;
-  std::size_t array_itr;
-
-  for(array_itr = 0;
-      array_itr < lock_free_array_offset;
-      array_itr++){
-    auto value = lock_free_array->at(array_itr);
-    if (value != invalid_value) {
-      // Check offset
-      if(valid_array_itr == offset) {
-        return value;
-      }
-
-      // Update valid value count
-      valid_array_itr++;
+  LOG_DEBUG("Find Valid at %lu", offset);
+  std::size_t off = 0;
+  auto it = lock_free_list.begin();
+  while (it != lock_free_list.end()) {
+    if (off == offset) {
+      return it->second;
     }
+    ++it;
   }
-
   return invalid_value;
 }
 
 LOCK_FREE_ARRAY_TEMPLATE_ARGUMENTS
 size_t LOCK_FREE_ARRAY_TYPE::GetSize() const{
-  return lock_free_array_offset;
+  auto size = lock_free_list.size();
+  LOG_DEBUG("Size: %lu", size);
+  return size;
 }
 
 LOCK_FREE_ARRAY_TEMPLATE_ARGUMENTS
 bool LOCK_FREE_ARRAY_TYPE::IsEmpty() const{
-  return lock_free_array->empty();
+  auto isEmpty = lock_free_list.empty();
+  LOG_DEBUG("IsEmpty: %d", isEmpty);
+  return isEmpty;
 }
 
 LOCK_FREE_ARRAY_TEMPLATE_ARGUMENTS
-void LOCK_FREE_ARRAY_TYPE::Clear(const ValueType& invalid_value) {
-
-  // Set invalid value for all elements and reset lock_free_array_offset
-  for(std::size_t array_itr = 0;
-      array_itr < lock_free_array_offset;
-      array_itr++){
-    lock_free_array->at(array_itr) = invalid_value;
-  }
-
-  // Reset sentinel
-  lock_free_array_offset = 0;
-
+void LOCK_FREE_ARRAY_TYPE::Clear() {
+  lock_free_list.clear();
 }
 
 LOCK_FREE_ARRAY_TEMPLATE_ARGUMENTS
 bool LOCK_FREE_ARRAY_TYPE::Contains(const ValueType& value) {
-
   bool exists = false;
-
-  for(std::size_t array_itr = 0;
-      array_itr < lock_free_array_offset;
-      array_itr++){
-    auto array_value = lock_free_array->at(array_itr);
-    // Check array value
-    if(array_value == value) {
+  auto it = lock_free_list.begin();
+  while(it != lock_free_list.end()) {
+    if (it->second == value) {
       exists = true;
-      break;
     }
+    ++it;
   }
-
   return exists;
 }
 

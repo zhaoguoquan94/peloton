@@ -92,23 +92,6 @@ DataTable::DataTable(catalog::Schema *schema, const std::string &table_name,
   for (size_t i = 0; i < active_indirection_array_count_; ++i) {
     AddDefaultIndirectionArray(i);
   }
-
-
-  // Initialize hazard pointers.
-  typedef cds::container::IterableList<cds::gc::HP, std::shared_ptr<oid_t>> indexes_list_type;
-  typedef cds::container::IterableList<cds::gc::HP, oid_t> tile_groups_list_type;
-
-  cds::gc::hp::GarbageCollector::Construct(indexes_list_type::c_nHazardPtrCount + 3, 1, 16 );
-  cds::gc::hp::GarbageCollector::Construct(tile_groups_list_type::c_nHazardPtrCount + 3, 1, 16 );
-
-  cds::threading::Manager::attachThread();
-
-  // Sample code to insert some elements.
-  for (int i=0; i<100; i++) {
-    tile_groups_lockfree_.insert(i);
-  }
-
-  LOG_INFO("Size is %zu", tile_groups_lockfree_.size());
 }
 
 DataTable::~DataTable() {
@@ -119,7 +102,7 @@ DataTable::~DataTable() {
 
   for (tile_groups_itr = 0; tile_groups_itr < tile_groups_size;
        tile_groups_itr++) {
-    auto tile_group_id = tile_groups_.Find(tile_groups_itr);
+    auto tile_group_id = tile_groups_.Find(tile_groups_itr, invalid_tile_group_id);
 
     if (tile_group_id != invalid_tile_group_id) {
       LOG_TRACE("Dropping tile group : %u ", tile_group_id);
@@ -835,7 +818,7 @@ void DataTable::DropTileGroups() {
 
   for (tile_groups_itr = 0; tile_groups_itr < tile_groups_size;
        tile_groups_itr++) {
-    auto tile_group_id = tile_groups_.Find(tile_groups_itr);
+    auto tile_group_id = tile_groups_.Find(tile_groups_itr, invalid_tile_group_id);
 
     if (tile_group_id != invalid_tile_group_id) {
       // drop tile group in catalog
@@ -844,7 +827,7 @@ void DataTable::DropTileGroups() {
   }
 
   // Clear array
-  tile_groups_.Clear(invalid_tile_group_id);
+  tile_groups_.Clear();
 
   tile_group_count_ = 0;
 }
@@ -879,7 +862,7 @@ std::shared_ptr<index::Index> DataTable::GetIndexWithOid(
   auto index_count = indexes_.GetSize();
 
   for (std::size_t index_itr = 0; index_itr < index_count; index_itr++) {
-    ret_index = indexes_.Find(index_itr);
+    ret_index = indexes_.Find(index_itr, nullptr);
     if (ret_index != nullptr && ret_index->GetOid() == index_oid) {
       break;
     }
@@ -897,7 +880,7 @@ void DataTable::DropIndexWithOid(const oid_t &index_oid) {
   auto index_count = indexes_.GetSize();
 
   for (std::size_t index_itr = 0; index_itr < index_count; index_itr++) {
-    index = indexes_.Find(index_itr);
+    index = indexes_.Find(index_itr, nullptr);
     if (index != nullptr && index->GetOid() == index_oid) {
       break;
     }
@@ -915,7 +898,7 @@ void DataTable::DropIndexWithOid(const oid_t &index_oid) {
 void DataTable::DropIndexes() {
   // TODO: iterate over all indexes, and actually drop them
 
-  indexes_.Clear(nullptr);
+  indexes_.Clear();
 
   indexes_columns_.clear();
 }
@@ -925,7 +908,7 @@ void DataTable::DropIndexes() {
 // with oid (due to a limitation of LockFreeArray).
 std::shared_ptr<index::Index> DataTable::GetIndex(const oid_t &index_offset) {
   PL_ASSERT(index_offset < indexes_.GetSize());
-  auto ret_index = indexes_.Find(index_offset);
+  auto ret_index = indexes_.Find(index_offset, nullptr);
 
   return ret_index;
 }
@@ -951,7 +934,7 @@ oid_t DataTable::GetValidIndexCount() const {
   oid_t valid_index_count = 0;
 
   for (std::size_t index_itr = 0; index_itr < index_count; index_itr++) {
-    index = indexes_.Find(index_itr);
+    index = indexes_.Find(index_itr, nullptr);
     if (index == nullptr) {
       continue;
     }
