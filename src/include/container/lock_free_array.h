@@ -73,7 +73,7 @@ class LockFreeArray {
     >::type
   > lock_free_list;
 
-  const int MAX_THREADS_COUNT = 1;
+  const int MAX_THREADS_COUNT = 100;
   const int MAX_RETIRED_PTR_COUNT = 16;
 };
 
