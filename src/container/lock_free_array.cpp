@@ -31,24 +31,15 @@ class IndirectionArray;
 
 LOCK_FREE_ARRAY_TEMPLATE_ARGUMENTS
 LOCK_FREE_ARRAY_TYPE::LockFreeArray(){
-
-  typedef cds::container::IterableKVList<cds::gc::HP,
-    int, ValueType, typename cds::container::iterable_list::make_traits<
-      cds::opt::item_counter< cds::atomicity::item_counter >
-    >::type
-  > list_type;
-
   // Initialize hazard pointer GC.
-  cds::gc::hp::GarbageCollector::construct(list_type::c_nHazardPtrCount + 3,
-                                           MAX_THREADS_COUNT,
-                                           MAX_RETIRED_PTR_COUNT);
+  cds::gc::hp::GarbageCollector::Construct(3, 100, 1);
   LOG_DEBUG("Initalized lock free array");
 }
 
 LOCK_FREE_ARRAY_TEMPLATE_ARGUMENTS
 LOCK_FREE_ARRAY_TYPE::~LockFreeArray(){
   // Destruct hazard pointer GC
-  //cds::gc::hp::GarbageCollector::destruct(true);
+  cds::gc::hp::GarbageCollector::Destruct(false);
   LOG_DEBUG("Destructing lock free array");
 }
 
