@@ -39,7 +39,7 @@ LOCK_FREE_ARRAY_TYPE::LockFreeArray(){
 LOCK_FREE_ARRAY_TEMPLATE_ARGUMENTS
 LOCK_FREE_ARRAY_TYPE::~LockFreeArray(){
   // Destruct hazard pointer GC
-  cds::gc::hp::GarbageCollector::Destruct(false);
+  //cds::gc::hp::GarbageCollector::Destruct(false);
   LOG_DEBUG("Destructing lock free array");
 }
 
