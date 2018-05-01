@@ -31,11 +31,13 @@ class OptimizeContext {
                   double cost_upper_bound = std::numeric_limits<double>::max())
       : metadata(metadata),
         required_prop(required_prop),
-        cost_upper_bound(cost_upper_bound) {}
+        cost_upper_bound(cost_upper_bound),
+        placeholder(0) {}
 
   OptimizerMetadata *metadata;
   std::shared_ptr<PropertySet> required_prop;
   double cost_upper_bound;
+  int placeholder;
 };
 
 }  // namespace optimizer

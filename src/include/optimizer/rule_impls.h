@@ -339,6 +339,20 @@ class EmbedFilterIntoGet : public Rule {
 };
 
 ///////////////////////////////////////////////////////////////////////////////
+/// TransitivePredicates
+class TransitivePredicates : public Rule {
+ public:
+  TransitivePredicates();
+
+  bool Check(std::shared_ptr<OperatorExpression> plan,
+             OptimizeContext *context) const override;
+
+  void Transform(std::shared_ptr<OperatorExpression> input,
+                 std::vector<std::shared_ptr<OperatorExpression>> &transformed,
+                 OptimizeContext *context) const override;
+};
+
+///////////////////////////////////////////////////////////////////////////////
 /// Unnesting rules
 // We use this promise to determine which rules should be applied first if
 // multiple rules are applicable, we need to first pull filters up through mark-join

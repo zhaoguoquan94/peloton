@@ -1059,7 +1059,7 @@ int MarkJoinToInnerJoin::Promise(GroupExpression *group_expr,
   (void)context;
   auto root_type = match_pattern->Type();
   // This rule is not applicable
-  if (root_type != OpType::Leaf && root_type != group_expr->Op().GetType()) {
+  if (root_type != OpType::All && root_type != OpType::Leaf && root_type != group_expr->Op().GetType()) {
     return 0;
   }
   return static_cast<int>(UnnestPromise::Low);
@@ -1110,7 +1110,7 @@ int SingleJoinToInnerJoin::Promise(GroupExpression *group_expr,
   (void)context;
   auto root_type = match_pattern->Type();
   // This rule is not applicable
-  if (root_type != OpType::Leaf && root_type != group_expr->Op().GetType()) {
+  if (root_type != OpType::All && root_type != OpType::Leaf && root_type != group_expr->Op().GetType()) {
     return 0;
   }
   return static_cast<int>(UnnestPromise::Low);
@@ -1163,7 +1163,7 @@ int PullFilterThroughMarkJoin::Promise(GroupExpression *group_expr,
   (void)context;
   auto root_type = match_pattern->Type();
   // This rule is not applicable
-  if (root_type != OpType::Leaf && root_type != group_expr->Op().GetType()) {
+  if (root_type != OpType::All && root_type != OpType::Leaf && root_type != group_expr->Op().GetType()) {
     return 0;
   }
   return static_cast<int>(UnnestPromise::High);
@@ -1224,7 +1224,7 @@ int PullFilterThroughAggregation::Promise(GroupExpression *group_expr,
   (void)context;
   auto root_type = match_pattern->Type();
   // This rule is not applicable
-  if (root_type != OpType::Leaf && root_type != group_expr->Op().GetType()) {
+  if (root_type != OpType::All && root_type != OpType::Leaf && root_type != group_expr->Op().GetType()) {
     return 0;
   }
   return static_cast<int>(UnnestPromise::High);
@@ -1304,6 +1304,53 @@ void PullFilterThroughAggregation::Transform(
     bottom_operator = new_filter;
   }
   bottom_operator->PushChild(filter_expr->Children()[0]);
+
+  transformed.push_back(output);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+/// TransitivePredicates
+TransitivePredicates::TransitivePredicates() {
+  type_ = RuleType::TRANSITIVE_PREDICATES;
+
+  match_pattern = std::make_shared<Pattern>(OpType::All);
+  LOG_DEBUG("Matching transitive predicates");
+}
+
+bool TransitivePredicates::Check(std::shared_ptr<OperatorExpression> input,
+				   OptimizeContext *context) const {
+  (void)context;
+
+  LOG_DEBUG("Transitive predicates type: %s", input->Op().GetName().c_str());
+  if (input->Op().GetName() != "LogicalGet")
+    return false;
+  
+  return true;
+}
+
+void TransitivePredicates::Transform(
+    std::shared_ptr<OperatorExpression> input,
+    std::vector<std::shared_ptr<OperatorExpression>> &transformed,
+    OptimizeContext *context) const {
+  LOG_TRACE("TransitivePredicates::Transform");
+  LOG_DEBUG("Context number: %d", context->placeholder);
+
+  context->placeholder++;
+
+  auto get = input->Op().As<LogicalGet>();
+
+  LOG_DEBUG("---------- Number of predicates %d\n", int(get->predicates.size()));
+  for (auto &predicate : get->predicates) {
+    LOG_DEBUG("Predicate: %s", predicate.expr->GetInfo().c_str());
+  }
+
+  if (context->placeholder > 1)
+    return;
+  
+  std::shared_ptr<OperatorExpression> output =
+      std::make_shared<OperatorExpression>(
+          LogicalGet::make(get->get_id, get->predicates,
+			   get->table, get->table_alias, get->is_for_update));
 
   transformed.push_back(output);
 }

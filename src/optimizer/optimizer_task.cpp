@@ -30,8 +30,8 @@ void OptimizerTask::ConstructValidRules(
     std::vector<std::unique_ptr<Rule>> &rules,
     std::vector<RuleWithPromise> &valid_rules) {
   for (auto &rule : rules) {
-    if (group_expr->Op().GetType() !=
-            rule->GetMatchPattern()->Type() ||  // Root pattern type mismatch
+    if ((group_expr->Op().GetType() != rule->GetMatchPattern()->Type()
+	 && rule->GetMatchPattern()->Type() != OpType::All) ||  // Root pattern type mismatch
         group_expr->HasRuleExplored(rule.get()) ||  // Rule has been applied
         group_expr->GetChildrenGroupsSize() !=
             rule->GetMatchPattern()
@@ -409,6 +409,8 @@ void TopDownRewrite::execute() {
   auto cur_group = GetMemo().GetGroupByID(group_id_);
   auto cur_group_expr = cur_group->GetLogicalExpression();
 
+  
+  LOG_DEBUG("1 - Rewrite %d / %d", int(rule_set_name_), int(RewriteRuleSetName::TRANSITIVE_PREDICATES));
   // Construct valid transformation rules from rule set
   ConstructValidRules(cur_group_expr, context_.get(),
                       GetRuleSet().GetRewriteRulesByName(rule_set_name_),
@@ -419,11 +421,18 @@ void TopDownRewrite::execute() {
             std::greater<RuleWithPromise>());
 
   for (auto &r : valid_rules) {
+    LOG_DEBUG("2 - Rewrite %d / %d", int(rule_set_name_), int(RewriteRuleSetName::TRANSITIVE_PREDICATES));
+    
     GroupExprBindingIterator iterator(GetMemo(), cur_group_expr,
                                       r.rule->GetMatchPattern());
     if (iterator.HasNext()) {
       auto before = iterator.Next();
       PELOTON_ASSERT(!iterator.HasNext());
+
+      if (!r.rule->Check(before, context_.get())) {
+	continue;
+      }
+
       std::vector<std::shared_ptr<OperatorExpression>> after;
       r.rule->Transform(before, after, context_.get());
 

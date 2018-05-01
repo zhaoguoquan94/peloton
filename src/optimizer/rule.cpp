@@ -20,7 +20,7 @@ int Rule::Promise(GroupExpression *group_expr, OptimizeContext *context) const {
   (void)context;
   auto root_type = match_pattern->Type();
   // This rule is not applicable
-  if (root_type != OpType::Leaf && root_type != group_expr->Op().GetType()) {
+  if (root_type != OpType::All && root_type != OpType::Leaf && root_type != group_expr->Op().GetType()) {
     return 0;
   }
   if (IsPhysical()) return PHYS_PROMISE;
@@ -60,6 +60,9 @@ RuleSet::RuleSet() {
                  new MarkJoinToInnerJoin());
   AddRewriteRule(RewriteRuleSetName::UNNEST_SUBQUERY,
                  new PullFilterThroughAggregation());
+
+  AddRewriteRule(RewriteRuleSetName::TRANSITIVE_PREDICATES,
+		 new TransitivePredicates());
 }
 
 }  // namespace optimizer
